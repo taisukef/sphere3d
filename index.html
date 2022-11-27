@@ -1,0 +1,326 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>sphere3d</title>
+</head>
+<body>
+
+<h1>sphere3d</h1>
+
+<canvas id="canvas"></canvas>
+
+<script type="module">
+// matrix
+const createMatrix = function() {
+	return [
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1
+	];
+};
+const createMatrixTranslate = function(dx, dy, dz) {
+	return [
+		1, 0, 0, dx,
+		0, 1, 0, dy,
+		0, 0, 1, dz,
+		0, 0, 0, 1
+	];
+};
+const createMatrixScale = function(scale) {
+	return [
+		scale, 0, 0, 0,
+		0, scale, 0, 0,
+		0, 0, scale, 0,
+		0, 0, 0, 1
+	];
+};
+const createMatrixRotateX = function(thx) {
+	const c = Math.cos(thx);
+	const s = Math.sin(thx);
+	return [
+		1, 0, 0, 0,
+		0, c, -s, 0,
+		0, s, c, 0,
+		0, 0, 0, 1
+	];
+};
+const createMatrixRotateY = function(thy) {
+	const c = Math.cos(thy);
+	const s = Math.sin(thy);
+	return [
+		c, 0, s, 0,
+		0, 1, 0, 0,
+		-s, 0, c, 0,
+		0, 0, 0, 1
+	];
+};
+const createMatrixRotateZ = function(thz) {
+	const c = Math.cos(thz);
+	const s = Math.sin(thz);
+	return [
+		c, -s, 0, 0,
+		s, c, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1
+	];
+};
+const createMatrixProjection = function(fovyth, nearz, farz, aspect) {
+	const tan = Math.tan(fovyth / 2);
+	return [
+		1 / (-aspect * tan), 0, 0, 0,
+		0, 1 / -tan, 0, 0,
+		0, 0, farz / (farz - nearz), farz * nearz / (farz - nearz),
+		0, 0, 1, 0
+	];
+};
+const mulPxM = function(p, m) {
+	return [
+		p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + m[3],
+		p[0] * m[4] + p[1] * m[5] + p[2] * m[6] + m[7],
+		p[0] * m[8] + p[1] * m[9] + p[2] * m[10] + m[11]
+	];
+};
+/*
+0 1 2 3
+4 5 6 7
+8 9 10 11
+12 13 14 15
+*/
+const mulMxM = function(n, m) {
+	return [
+		n[0] * m[0] + n[1] * m[4] + n[2] * m[8] + n[3] * m[12],
+		n[0] * m[1] + n[1] * m[5] + n[2] * m[9] + n[3] * m[13],
+		n[0] * m[2] + n[1] * m[6] + n[2] * m[10] + n[3] * m[14],
+		n[0] * m[3] + n[1] * m[7] + n[2] * m[11] + n[3] * m[15],
+		
+		n[4] * m[0] + n[5] * m[4] + n[6] * m[8] + n[7] * m[12],
+		n[4] * m[1] + n[5] * m[5] + n[6] * m[9] + n[7] * m[13],
+		n[4] * m[2] + n[5] * m[6] + n[6] * m[10] + n[7] * m[14],
+		n[4] * m[3] + n[5] * m[7] + n[6] * m[11] + n[7] * m[15],
+		
+		n[8] * m[0] + n[9] * m[4] + n[10] * m[8] + n[11] * m[12],
+		n[8] * m[1] + n[9] * m[5] + n[10] * m[9] + n[11] * m[13],
+		n[8] * m[2] + n[9] * m[6] + n[10] * m[10] + n[11] * m[14],
+		n[8] * m[3] + n[9] * m[7] + n[10] * m[11] + n[11] * m[15],
+		
+		n[12] * m[0] + n[13] * m[4] + n[14] * m[8] + n[15] * m[12],
+		n[12] * m[1] + n[13] * m[5] + n[14] * m[9] + n[15] * m[13],
+		n[12] * m[2] + n[13] * m[6] + n[14] * m[10] + n[15] * m[14],
+		n[12] * m[3] + n[13] * m[7] + n[14] * m[11] + n[15] * m[15],
+	];
+};
+const mulPsxM = function(ps, m) {
+	const res = [];
+	for (let i = 0; i < ps.length; i++) {
+		const p = ps[i];
+		res.push([
+			p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + m[3],
+			p[0] * m[4] + p[1] * m[5] + p[2] * m[6] + m[7],
+			p[0] * m[8] + p[1] * m[9] + p[2] * m[10] + m[11]
+		]);
+	}
+	return res;
+};
+
+// canvas
+const getContext = function(canvas) {
+	const ctx = canvas.getContext("2d");
+	ctx._canvas = canvas;
+	ctx.init = function() {
+		const cw = this._canvas.clientWidth;
+		const ch = this._canvas.clientHeight;
+		this._canvas.setAttribute("width", cw);
+		this._canvas.setAttribute("height", ch);
+		this.setColor(0, 0, 0);
+		this.setStrokeWidth(10);
+		if (this.draw != null)
+			this.draw();
+	};
+	ctx.flooraxis = false;
+	ctx.setLiquidMode = function(b) {
+		this.liquid = b;
+		this.cw = canvas.clientWidth;
+		this.ch = canvas.clientHeight;
+	};
+	ctx.drawLine = function(x1, y1, x2, y2) {
+		if (this.liquid) {
+			x1 = this.cw * x1;
+			y1 = this.ch * y1;
+			x2 = this.cw * x2;
+			y2 = this.ch * y2;
+			if (this.flooraxis) {
+				x1 = Math.floor(x1);
+				y1 = Math.floor(y1);
+				x2 = Math.floor(x2);
+				y2 = Math.floor(y2);
+			}
+		}
+		ctx.beginPath();
+		ctx.moveTo(x1, y1);
+		ctx.lineTo(x2, y2);
+		ctx.closePath();
+		ctx.stroke();
+	};
+	ctx.rgba = function(r, g, b, a) {
+		r = Math.floor(r * 255);
+		g = Math.floor(g * 255);
+		b = Math.floor(b * 255);
+	//	return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+		const s = [];
+		s.push("rgba(");
+		s.push(r);
+		s.push(",");
+		s.push(g);
+		s.push(",");
+		s.push(b);
+		s.push(",");
+		s.push(a);
+		s.push(")");
+		return s.join("");
+	};
+	ctx.setStrokeWidth = function(n) {
+		ctx.strokeWidth = n;
+	};
+	ctx.setColor = function(r, g, b, a) {
+		let c = null;
+		if (g != null) {
+			if (a == null) {
+				a = 1;
+			}
+			c = this.rgba(r, g, b, a);
+		} else {
+			c = r;
+		}
+		ctx.fillStyle = c;
+		ctx.strokeStyle = c;
+	};
+	ctx.fillCircle = function(x, y, r) {
+		if (this.liquid) {
+			x = this.cw * x;
+			y = this.ch * y;
+			if (this.flooraxis) {
+				x = Math.floor(x);
+				y = Math.floor(y);
+			}
+		}
+		ctx.beginPath();
+		ctx.arc(x, y, r, 0, Math.PI * 2, false);
+		ctx.closePath();
+		ctx.fill();
+	};
+	ctx.init();
+	window.onresize = function() {
+		ctx.init();
+	};
+	return ctx;
+};
+
+const createSphere = function() {
+	const res = [];
+	const n = 300;
+	const r = 30;
+	for (let i = 0; i < n; i++) {
+		const th = i * Math.PI / 20;
+		const z = (i / n - .5) * r * 2;
+		const r2 = Math.sqrt(r * r - z * z);
+		const x = Math.cos(th) * r2;
+		const y = Math.sin(th) * r2;
+		res.push([ x, y, z ]);
+	}
+	return res;
+};
+const createTripod = function() {
+	const r = 10;
+	const r2 = Math.sin(60 / 360 * Math.PI * 2) * r;
+	const r3 = Math.cos(60 / 360 * Math.PI * 2) * r;
+	const tri = [
+		[ 0, r, 0, 1 ],
+		[ r2, 0, 0, 1 ],
+		[ -r2, 0, 0, 1 ],
+		[ 0, r - r2, r3, 1 ],
+	];
+	return tri;
+};
+
+const g = getContext(canvas);
+g.drawPoints = function(p) {
+	for (let i = 0; i < p.length; i++) {
+		//g.drawLine(p[i][0], p[i][1], p[i][0], p[i][1]);
+		g.fillCircle(p[i][0], p[i][1], 3);
+	}
+};
+let orgt = performance.now();
+
+const tri = createSphere();
+//const tri = createTripod();
+
+g.draw = function() {
+	const t = (performance.now() - orgt) / 1000 * 60;
+
+	g.setLiquidMode(false);
+	const gw = g.cw;
+	const gh = g.ch;
+	g.setColor(1, 1, 1, 1);
+	g.fillRect(0, 0, gw, gh);
+	
+	const ox = gw / 2;
+	const oy = gh / 2;
+	
+	g.setColor(1, .2, .1, 1);
+	
+	const getAnimatedMatrix = () => {
+		let m = createMatrixRotateZ(t / 30);
+		m = mulMxM(m, createMatrixRotateX(t / 40));
+		m = mulMxM(m, createMatrixRotateY(t / 50));
+		m = mulMxM(m, createMatrixScale(3));
+		return m;
+	};
+	const anim = getAnimatedMatrix();
+	
+	const dz = .1;
+	{
+		let m = createMatrix();
+		m = mulMxM(m, createMatrixTranslate(ox - 200, oy, t * 10));
+		m = mulMxM(m, createMatrixRotateZ(dz));
+		//m = mulMxM(m, createMatrixProjection(Math.PI / 8, 1, 2000, 1));
+		m = mulMxM(m, anim);
+		const t2 = mulPsxM(tri, m);
+		g.drawPoints(t2);
+	}
+
+	{
+		let m = createMatrix();
+		m = mulMxM(m, createMatrixTranslate(ox + 200, oy, t * 10));
+		m = mulMxM(m, createMatrixRotateZ(-dz));
+		//m = mulMxM(m, createMatrixProjection(Math.PI / 8, 1, 2000, 1));
+		m = mulMxM(m, anim);
+		const t2 = mulPsxM(tri, m);
+		g.drawPoints(t2);
+	}
+};
+const loop = () => {
+	g.draw();
+	requestAnimationFrame(loop);
+};
+loop();
+</script>
+
+<style>
+body {
+	text-align: center;
+}
+a {
+	color: gray !important;
+}
+#canvas {
+	width: 100%;
+	height: 300px;
+}
+</style>
+	
+<footer>
+<div>App: 0から作る立体視できる球体 sphere3d <a href=https://taisukef.github.io/sphere3d/>src on GitHub</a></div>
+<div>Base App: <a href=https://fukuno.jig.jp/2012/sphere3d>sphere2d 2012 by taisukef</a></div>
+</footer>
+
+</body>
+</html>
